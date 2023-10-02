@@ -8,15 +8,16 @@
 #include <Ezo_i2c_util.h>                                        //brings in common print statements
 #include <Ezo_i2c.h> //include the EZO I2C library from https://github.com/Atlas-Scientific/Ezo_I2c_lib
 #include <Wire.h>    //include arduinos i2c library
+#include "SimpleWeb/DataController.cpp"
+#include "SimpleWeb/Router.h"
+#include "SimpleWeb/IController.h"
 
 WiFiClient client;                                              //declare that this device connects to a Wi-Fi network,create a connection to a specified internet IP address
+// Set web server port number to 80
+WiFiServer server(80);
 
-//----------------Fill in your Wi-Fi / ThingSpeak Credentials-------
-const String ssid = "Wifi Name";                                 //The name of the Wi-Fi network you are connecting to
-const String pass = "Wifi Password";                             //Your WiFi network password
-const long myChannelNumber = 1234566;                            //Your Thingspeak channel number
-const char * myWriteAPIKey = "XXXXXXXXXXXXXXXX";                 //Your ThingSpeak Write API Key
-//------------------------------------------------------------------
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
 Ezo_board PH = Ezo_board(99, "PH");           //create a PH circuit object, who's address is 99 and name is "PH"
 Ezo_board ORP = Ezo_board(98, "ORP");         //create an ORP circuit object who's address is 98 and name is "ORP"
@@ -29,6 +30,9 @@ Ezo_board device_list[] = {   //an array of boards used for sending commands to 
   RTD,
   PMPL
 };
+
+bool process_coms(const String &string_buffer) ;
+void print_help();
 
 Ezo_board* default_board = &device_list[0]; //used to store the board were talking to
 
@@ -57,15 +61,51 @@ float k_val = 0;                                          //holds the k value fo
 
 bool polling  = true;                                     //variable to determine whether or not were polling the circuits
 bool send_to_thingspeak = true;                           //variable to determine whether or not were sending data to thingspeak
+TaskHandle_t webSiteTask;
 
 bool wifi_isconnected() {                           //function to check if wifi is connected
   return (WiFi.status() == WL_CONNECTED);
 }
 
+void WebsiteTaskHandler(void * pvParameters)
+{
+  Serial.println("Website task running on core ");
+  Serial.println(xPortGetCoreID());
+  SimpleWeb::Router router = SimpleWeb::Router(server);
+  Serial.println("Router setup ");
+  
+  //Controllers must be placed in the order in which they should check the header
+  router.AddController(new SimpleWeb::DataController(PH, ORP, RTD));
+  
+  Serial.println("Router done ");
+
+  while(true)
+  {
+    router.Check();
+    //With out the delay it crashes???? idk
+    delay(50);
+  }
+}
+
 void reconnect_wifi() {                                   //function to reconnect wifi if its not connected
-  if (!wifi_isconnected()) {
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    Serial.println("connecting to wifi");
+  if (!wifi_isconnected()) 
+  {
+    // Connect to Wi-Fi network with SSID and password
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+      delay(500);
+      Serial.print(".");
+    }
+    // Print local IP address and start web server
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+    
+    server.begin(); 
   }
 }
 
@@ -109,20 +149,31 @@ void setup() {
   digitalWrite(EN_AUX, LOW);
 
   Wire.begin();                           //start the I2C
-  Serial.begin(9600);                     //start the serial communication to the computer
+  Serial.begin(115200);                    //start the serial communication to the computer
 
   WiFi.mode(WIFI_STA);                    //set ESP32 mode as a station to be connected to wifi network
   //ThingSpeak.begin(client);               //enable ThingSpeak connection
   Wifi_Seq.reset();                       //initialize the sequencers
   Seq.reset();
-  Thingspeak_seq.reset();
+  
+  wifi_isconnected();
+
+  
+  xTaskCreatePinnedToCore(
+        WebsiteTaskHandler,   /* Task function. */
+        "Task1",     /* name of task. */
+        10000,       /* Stack size of task */
+        NULL,        /* parameter of the task */
+        1,           /* priority of the task */
+        &webSiteTask,      /* Task handle to keep track of created task */
+        0);          /* pin task to core 0 */  
 }
 
 void loop() {
   String cmd;                            //variable to hold commands we send to the kit
 
   Wifi_Seq.run();                        //run the sequncer to do the polling
-  /*
+  
   if (receive_command(cmd)) {            //if we sent the kit a command it gets put into the cmd variable
     polling = false;                     //we stop polling
     send_to_thingspeak = false;          //and sending data to thingspeak
@@ -131,39 +182,10 @@ void loop() {
     }
   }
 
-  if (polling == true) {                 //if polling is turned on, run the sequencer
-    Seq.run();
-    //Thingspeak_seq.run();
-  }
-  */
+  delay(5000);  
 }
 
-//function that controls the pumps activation and output
-void pump_function(Ezo_board &pump, Ezo_board &sensor, float value, float dose, bool greater_than) {
-  if (sensor.get_error() == Ezo_board::SUCCESS) {                    //make sure we have a valid reading before we make any decisions
-    bool comparison = false;                                        //variable for holding the reuslt of the comparison
-    if (greater_than) {                                             //we do different comparisons depending on what the user wants
-      comparison = (sensor.get_last_received_reading() >= value);   //compare the reading of the circuit to the comparison value to determine whether we actiavte the pump
-    } else {
-      comparison = (sensor.get_last_received_reading() <= value);
-    }
-    if (comparison) {                                               //if the result of the comparison means we should activate the pump
-      pump.send_cmd_with_num("d,", dose);                           //dispense the dose
-      delay(100);                                                   //wait a few milliseconds before getting pump results
-      Serial.print(pump.get_name());                                //get pump data to tell the user if the command was received successfully
-      Serial.print(" ");
-      char response[20];
-      if (pump.receive_cmd(response, 20) == Ezo_board::SUCCESS) {
-        Serial.print("pump dispensed ");
-      } else {
-        Serial.print("pump error ");
-      }
-      Serial.println(response);
-    } else {
-      pump.send_cmd("x");                                          //if we're not supposed to dispense, stop the pump
-    }
-  }
-}
+
 
 void step1() {
   //send a read command. we use this command instead of RTD.send_cmd("R");
@@ -209,7 +231,7 @@ void step4() {
     //ThingSpeak.setField(2, String(ORP.get_last_received_reading(), 0));                 //assign ORP readings to the second column of thingspeak channel
   }
   Serial.println();
-  pump_function(PUMP_BOARD, EZO_BOARD, COMPARISON_VALUE, PUMP_DOSE, IS_GREATER_THAN);
+  
 }
 
 void start_datalogging() {
@@ -221,7 +243,7 @@ void start_datalogging() {
 bool process_coms(const String &string_buffer) 
 {      //function to process commands that manipulate global variables and are specifc to certain kits
   if (string_buffer == "HELP") {
-    //print_help();
+    print_help();
     return true;
   }
   else if (string_buffer.startsWith("DATALOG")) 
