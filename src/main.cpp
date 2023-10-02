@@ -62,6 +62,7 @@ float k_val = 0;                                          //holds the k value fo
 bool polling  = true;                                     //variable to determine whether or not were polling the circuits
 bool send_to_thingspeak = true;                           //variable to determine whether or not were sending data to thingspeak
 TaskHandle_t webSiteTask;
+SimpleWeb::DataController *dataController = new SimpleWeb::DataController(PH, ORP, RTD);
 
 bool wifi_isconnected() {                           //function to check if wifi is connected
   return (WiFi.status() == WL_CONNECTED);
@@ -75,7 +76,7 @@ void WebsiteTaskHandler(void * pvParameters)
   Serial.println("Router setup ");
   
   //Controllers must be placed in the order in which they should check the header
-  router.AddController(new SimpleWeb::DataController(PH, ORP, RTD));
+  router.AddController(dataController);
   
   Serial.println("Router done ");
 
@@ -166,26 +167,14 @@ void setup() {
         NULL,        /* parameter of the task */
         1,           /* priority of the task */
         &webSiteTask,      /* Task handle to keep track of created task */
-        0);          /* pin task to core 0 */  
+        1);          /* pin task to core 0 */  
 }
 
-void loop() {
-  String cmd;                            //variable to hold commands we send to the kit
-
-  Wifi_Seq.run();                        //run the sequncer to do the polling
-  
-  if (receive_command(cmd)) {            //if we sent the kit a command it gets put into the cmd variable
-    polling = false;                     //we stop polling
-    send_to_thingspeak = false;          //and sending data to thingspeak
-    if (!process_coms(cmd)) {            //then we evaluate the cmd for kit specific commands
-      process_command(cmd, device_list, device_list_len, default_board);    //then if its not kit specific, pass the cmd to the IOT command processing function
-    }
-  }
-
-  delay(5000);  
+void loop() { 
+  reconnect_wifi();
+  dataController->ReadData();
+  delay(1000);
 }
-
-
 
 void step1() {
   //send a read command. we use this command instead of RTD.send_cmd("R");
