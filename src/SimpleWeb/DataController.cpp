@@ -50,7 +50,6 @@ namespace SimpleWeb
             float rtd;
             float ph;
             float orp;
-            String error;
 
             if(okToGetData)
             {
@@ -83,19 +82,14 @@ namespace SimpleWeb
                 Serial.printf("\nGetting %s\n", PH.get_name());
                 receive_and_print_reading(PH);             //get the reading from the PH circuit
                 if (PH.get_error() == Ezo_board::SUCCESS) 
-                {                                          //if the PH reading was successful (back in step 1)
                     ph = PH.get_last_received_reading();
-                    //ThingSpeak.setField(1, String(PH.get_last_received_reading(), 2));                 //assign PH readings to the first column of thingspeak channel
-                }
                 else
                     PH.get_error();
 
                 Serial.printf("\nGetting %s\n", ORP.get_name());
                 receive_and_print_reading(ORP);             //get the reading from the ORP circuit
                 if (ORP.get_error() == Ezo_board::SUCCESS) 
-                {                                          //if the ORP reading was successful (back in step 1)
                     orp = ORP.get_last_received_reading();
-                }
                 else
                     ORP.get_error();
             }
@@ -161,6 +155,7 @@ namespace SimpleWeb
                 client.println();
 
                 serializeJson(doc, client); 
+                doc.garbageCollect();
                 return true; 
             }           
             else if(header.indexOf("GET /data HTTP/1.1") >= 0)
@@ -179,7 +174,7 @@ namespace SimpleWeb
                     doc[devicePointers[i]->get_name()] = devicePointers[i]->get_last_received_reading();
                 
                 serializeJson(doc, client);
-
+                doc.garbageCollect();
                 return true;
             }
 
