@@ -2,10 +2,10 @@
 
 More documentation to come
 
-GET lists out all the commands
+GET lists out all the commands as json
 http://192.168.2.106/HELP
 
-POST the command to Configure the devices
+POST the command to Configure the devices as json. A single string is the command. I used Postman to get this to work
 http://192.168.2.106/CMD
 
 
