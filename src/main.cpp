@@ -64,12 +64,107 @@ bool send_to_thingspeak = true;                           //variable to determin
 TaskHandle_t webSiteTask;
 SimpleWeb::DataController *dataController = new SimpleWeb::DataController(PH, ORP, RTD);
 
-bool wifi_isconnected() {                           //function to check if wifi is connected
-  return (WiFi.status() == WL_CONNECTED);
+// void GetStackSize()
+// {
+//     TaskStatus_t *pxTaskStatusArray[2];
+//     volatile UBaseType_t uxArraySize, x;
+//     uint32_t ulTotalRunTime, ulStatsAsPercentage;
+
+//    /* Make sure the write buffer does not contain a string. */
+//    //*pcWriteBuffer = 0x00;
+
+//    /* Take a snapshot of the number of tasks in case it changes while this
+//    function is executing. */
+//    uxArraySize = uxTaskGetNumberOfTasks();
+
+//    /* Allocate a TaskStatus_t structure for each task.  An array could be
+//    allocated statically at compile time. */
+//    //pxTaskStatusArray = pvPortMalloc( uxArraySize * sizeof( TaskStatus_t ) );
+
+//    if( pxTaskStatusArray != NULL )
+//    {
+//       /* Generate raw status information about each task. */
+//       uxArraySize = uxTaskGetSystemState( &pxTaskStatusArray,
+//                                  uxArraySize,
+//                                  &ulTotalRunTime );
+
+//       /* For percentage calculations. */
+//       ulTotalRunTime /= 100UL;
+
+//       /* Avoid divide by zero errors. */
+//       if( ulTotalRunTime > 0 )
+//       {
+//          /* For each populated position in the pxTaskStatusArray array,
+//          format the raw data as human readable ASCII data. */
+//          for( x = 0; x < uxArraySize; x++ )
+//          {
+//             /* What percentage of the total run time has the task used?
+//             This will always be rounded down to the nearest integer.
+//             ulTotalRunTimeDiv100 has already been divided by 100. */
+//             ulStatsAsPercentage =
+//                   pxTaskStatusArray[ x ].ulRunTimeCounter / ulTotalRunTime;
+
+//             if( ulStatsAsPercentage > 0UL )
+//             {
+//                Serial.printf("%stt%lutt%lu%%rn",
+//                                  pxTaskStatusArray[ x ].pcTaskName,
+//                                  pxTaskStatusArray[ x ].ulRunTimeCounter,
+//                                  ulStatsAsPercentage );
+//             }
+//             else
+//             {
+//                /* If the percentage is zero here then the task has
+//                consumed less than 1% of the total run time. */
+//                Serial.printf("%stt%lutt<1%%rn",
+//                                  pxTaskStatusArray[ x ].pcTaskName,
+//                                  pxTaskStatusArray[ x ].ulRunTimeCounter );
+//             }
+
+//             //pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
+//          }
+//       }
+
+//       /* The array is no longer needed, free the memory it consumes. */
+//       vPortFree( pxTaskStatusArray );
+//    }
+// }
+
+bool wifi_isconnected() 
+{                           //function to check if wifi is connected
+    return (WiFi.status() == WL_CONNECTED);
 }
+
+void reconnect_wifi() 
+{                                   //function to reconnect wifi if its not connected
+    if (!wifi_isconnected()) 
+    {
+        // Connect to Wi-Fi network with SSID and password
+        Serial.print("Connecting to ");
+        Serial.println(ssid);
+        WiFi.begin(ssid, password);
+        while (WiFi.status() != WL_CONNECTED) 
+        {
+            delay(500);
+            Serial.print(".");
+        }
+        // Print local IP address and start web server
+        Serial.println("");
+        Serial.println("WiFi connected.");
+        Serial.println("IP address: ");
+        Serial.println(WiFi.localIP());
+        
+        server.begin(); 
+    }
+}
+
 
 void WebsiteTaskHandler(void * pvParameters)
 {
+  
+  //set ESP32 mode as a station to be connected to wifi network
+  WiFi.mode(WIFI_STA);   
+  wifi_isconnected();
+
   Serial.println("Website task running on core ");
   Serial.println(xPortGetCoreID());
   SimpleWeb::Router router = SimpleWeb::Router(server);
@@ -81,33 +176,15 @@ void WebsiteTaskHandler(void * pvParameters)
 
   while(true)
   {
+    //GetStackSize();
+
+    reconnect_wifi();
     router.Check();
     //With out the delay it crashes???? idk
     delay(50);     
   }
 }
 
-void reconnect_wifi() {                                   //function to reconnect wifi if its not connected
-  if (!wifi_isconnected()) 
-  {
-    // Connect to Wi-Fi network with SSID and password
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) 
-    {
-      delay(500);
-      Serial.print(".");
-    }
-    // Print local IP address and start web server
-    Serial.println("");
-    Serial.println("WiFi connected.");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-    
-    server.begin(); 
-  }
-}
 
 
 
@@ -125,23 +202,19 @@ void setup() {
   Wire.begin();                           //start the I2C
   Serial.begin(115200);                    //start the serial communication to the computer
 
-  WiFi.mode(WIFI_STA);                    //set ESP32 mode as a station to be connected to wifi network
-  
-  wifi_isconnected();
-
-  
+   
   xTaskCreatePinnedToCore(
         WebsiteTaskHandler,   /* Task function. */
-        "Task1",     /* name of task. */
-        10000,       /* Stack size of task */
+        "Website Task",     /* name of task. */
+        50000,       /* Stack size of task */
         NULL,        /* parameter of the task */
         1,           /* priority of the task */
         &webSiteTask,      /* Task handle to keep track of created task */
-        1);          /* pin task to core 0 */  
+        1);          /* pin task to core 1 setup and loop run on core 0*/  
 }
 
 void loop() { 
-  reconnect_wifi();
-  dataController->ReadData();
-  delay(5000);
+    Serial.println("\nGoing to read");  
+    dataController->ReadData();
+    delay(10000);
 }
