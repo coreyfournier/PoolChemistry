@@ -181,12 +181,9 @@ void WebsiteTaskHandler(void * pvParameters)
     reconnect_wifi();
     router.Check();
     //With out the delay it crashes???? idk
-    delay(50);     
+    delay(500);     
   }
 }
-
-
-
 
 void setup() {
 
@@ -206,7 +203,7 @@ void setup() {
   xTaskCreatePinnedToCore(
         WebsiteTaskHandler,   /* Task function. */
         "Website Task",     /* name of task. */
-        50000,       /* Stack size of task */
+        20000,       /* Stack size of task */
         NULL,        /* parameter of the task */
         1,           /* priority of the task */
         &webSiteTask,      /* Task handle to keep track of created task */
