@@ -29,6 +29,17 @@ namespace SimpleWeb
         //an array of boards used for sending commands to all or specific boards
         Ezo_board* devicePointers[3];
  
+        Ezo_board* findDevice(string name)
+        {
+            for (uint8_t i = 0; i < deviceLength; i++) 
+            {
+                if (name == devicePointers[i]->get_name()) 
+                    return devicePointers[i]; 
+            }
+
+            return nullptr;
+        }
+        
 
         public:
         DataController(Ezo_board &ph, Ezo_board &orp, Ezo_board &rtd): 
@@ -41,6 +52,8 @@ namespace SimpleWeb
         {
 
         }
+
+  
 
         /*
             Reads the data from the sensors and stores them
@@ -95,24 +108,64 @@ namespace SimpleWeb
             }
         }
 
+        
         bool Handler(WiFiClient& client, const String& header)
         {
             if(header.indexOf("POST /CMD HTTP/1.1") >= 0)
             {
                 okToGetData = false;
                 String cmd;
-                Ezo_board* default_board = &PH;
-
                 StaticJsonDocument<256> doc;
                 String s = client.readStringUntil('\n');              
                 DeserializationError error = deserializeJson(doc, s.c_str());
 
-                cmd = doc.as<String>();
-                cmd.toUpperCase();                     //turn the command to uppercase for easier comparisions
-                cmd.trim();
-                Serial.printf("Received command=%s\n", cmd);
+                okToGetData = false;
 
-                process_command(cmd, devicePointers, deviceLength, default_board);    //then if its not kit specific, pass the cmd to the IOT command processing function
+                cmd = doc.as<String>();
+                
+                Ezo_board* board = findDevice(doc["device"]);
+
+                if(board == nullptr)
+                {
+                    StaticJsonDocument<100> response;
+                    response["error"] = "Device not found";
+                    
+                    serializeJson(response, client);
+                }
+                else
+                {
+                    StaticJsonDocument<100> response;
+                    
+                    cmd.toUpperCase();                     //turn the command to uppercase for easier comparisions
+                    cmd.trim();
+                    Serial.printf("Received command=%s\n", cmd);
+                    
+                    board->send_cmd(cmd.c_str());
+                    delay(1200);
+
+                     switch (board->get_error()) {             //switch case based on what the response code is.
+                        case Ezo_board::SUCCESS:
+                            char receive_buffer[32];
+                            Serial.println("Receiving response");
+                            board->receive_cmd(receive_buffer, 32);
+                            response["response"] = receive_buffer;
+
+                            break;
+                        case Ezo_board::FAIL:
+                            response["error"] = "Device responded with a FAIL";
+                            break;
+
+                        case Ezo_board::NOT_READY:
+                            response["error"] = "the command has not yet been finished calculating";
+                            break;
+                        case Ezo_board::NO_DATA:
+                            response["error"] = "the sensor has no data to send.";
+                            break;
+                    }
+
+                    //write out the response
+                    serializeJson(response, client);
+                }               
 
                 okToGetData = true;
 
@@ -180,6 +233,6 @@ namespace SimpleWeb
 
             return false;
         }
-    };
-
+    };   
+    
 }
